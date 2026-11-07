@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>AHA! Physics: Unit Striker 16-Bit</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{margin:0;background:#05020f;color:#fff;font-family:"Courier New",monospace}
+#g{display:flex;flex-direction:column;align-items:center;padding:6px 0}
+#wrap{position:relative;width:min(100%,calc((100vh - 84px)*2/3),480px);min-width:260px;border:3px solid #ff2fd0;box-shadow:0 0 18px #ff2fd0,0 0 40px #19e6ff55;background:#000}
+canvas{display:block;width:100%;height:auto;image-rendering:pixelated;touch-action:none}
+#wrap:after{content:"";position:absolute;inset:0;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,.28) 0 1px,transparent 1px 3px)}
+#ctl{display:flex;gap:10px;margin-top:8px;width:min(100%,480px);padding:0 6px}
+#ctl button{flex:1;height:58px;font:900 20px "Courier New",monospace;color:#19e6ff;background:#120a2a;border:3px solid #19e6ff;border-radius:6px;box-shadow:0 0 10px #19e6ff88}
+#ctl button.f{color:#ffe14a;border-color:#ffe14a;box-shadow:0 0 10px #ffe14a88;flex:1.6}
+#ctl button:active{background:#2b1a5c}
+#brand{font-size:12px;color:#ffe14a;margin-top:6px;text-shadow:0 0 6px #ffe14a;text-align:center}
+</style>
+</head>
+<body>
+<div id="g">
+<div id="wrap"><canvas id="c" width="480" height="720"></canvas></div>
+<div id="ctl"><button id="bl">◀</button><button id="bf" class="f">FIRE</button><button id="br">▶</button></div>
+<div id="brand">Not by sight, but by INSIGHT. · Desktop: ←/→ or A/D, Space = shoot, P = pause, R = restart</div>
+</div>
+<script>
+const physicsQuestionBank = [
+{quantity:"Spring Constant",formula:"F = kx",correctUnit:"N m⁻¹",wrongUnits:["N","J","Pa"]},
+{quantity:"Elastic Potential Energy",formula:"Ep = ½Fx = ½kx²",correctUnit:"J",wrongUnits:["N","W","Pa"]},
+{quantity:"Liquid Pressure",formula:"P = hρg",correctUnit:"Pa",wrongUnits:["N","J","kg m⁻³"]},
+{quantity:"Density",formula:"ρ = m/V",correctUnit:"kg m⁻³",wrongUnits:["kg","Pa","N m⁻²"]},
+{quantity:"Electric Field Strength",formula:"E = F/Q",correctUnit:"N C⁻¹",wrongUnits:["V","C","A"]},
+{quantity:"Electric Charge",formula:"Q = It",correctUnit:"C",wrongUnits:["A","V","J"]},
+{quantity:"Electric Current",formula:"I = Q/t",correctUnit:"A",wrongUnits:["C","V","Ω"]},
+{quantity:"Potential Difference",formula:"V = E/Q",correctUnit:"V",wrongUnits:["A","Ω","N C⁻¹"]},
+{quantity:"Electrical Resistance",formula:"R = V/I",correctUnit:"Ω",wrongUnits:["Ω m","V","A"]},
+{quantity:"Resistivity",formula:"ρ = RA/l",correctUnit:"Ω m",wrongUnits:["Ω/m","Ω","A"]},
+{quantity:"Electrical Energy",formula:"E = VIt",correctUnit:"J",wrongUnits:["W","V","A"]},
+{quantity:"Transformer Efficiency",formula:"η = Po/Pi ×100%",correctUnit:"No Unit",wrongUnits:["W","J","V"]},
+{quantity:"Current Gain",formula:"β = Ic/Ib",correctUnit:"No Unit",wrongUnits:["%","A","V"]},
+{quantity:"Nuclear Energy",formula:"E=mc²",correctUnit:"J",wrongUnits:["kg","N","W"]},
+{quantity:"Atomic Mass Unit",formula:"1u=1.66×10⁻²⁷kg",correctUnit:"kg",wrongUnits:["J","N","mol"]},
+{quantity:"Photon Energy",formula:"E=hf",correctUnit:"J",wrongUnits:["Hz","Js","W"]},
+{quantity:"Planck Constant",formula:"h=6.63×10⁻³⁴Js",correctUnit:"J s",wrongUnits:["J/s","J","Hz"]},
+{quantity:"de Broglie Wavelength",formula:"λ=h/p",correctUnit:"m",wrongUnits:["Hz","kg","J"]},
+{quantity:"Work Function",formula:"W=hf₀",correctUnit:"J",wrongUnits:["Hz","Js","V"]},
+{quantity:"Threshold Frequency",formula:"f₀",correctUnit:"Hz",wrongUnits:["J","m","Js"]},
+{quantity:"Maximum Kinetic Energy",formula:"hf=W+Ek",correctUnit:"J",wrongUnits:["Hz","Js","m"]},
+{quantity:"Photon Momentum",formula:"p=h/λ",correctUnit:"kg m s⁻¹",wrongUnits:["kg m⁻³","J","Hz"]}
+];
+// High-priority exam traps (extra distractors that appear more often)
+const TRAPS={"Electrical Resistance":["Ω m"],"Resistivity":["Ω/m"],"Planck Constant":["J/s"],"Density":["kg/m³"],"Electric Field Strength":["N/C"],"Current Gain":["%"],"Transformer Efficiency":["%"],"Photon Momentum":["kg m⁻³"]};
+const FAKE=["Ω/m","J/s","kg/m³","Js⁻¹","N/m"];
+const STAGES=[
+{n:"Density & Pressure",b:"Pressure Crusher",q:[2,3,0]},
+{n:"Force & Motion II",b:"Spring Mech",q:[0,1,2,3,21]},
+{n:"Electricity",b:"Resistance Tank",q:[4,5,6,7,8,9,10]},
+{n:"Electromagnetism",b:"Electromagnet Cannon",q:[4,5,7,8,9,11]},
+{n:"Electronics",b:"Transistor Titan",q:[11,12,6,7]},
+{n:"Nuclear Physics",b:"Nuclear Fortress",q:[13,14,15,10]},
+{n:"Quantum Physics",b:"Quantum Dragon",q:[15,16,17,18,19,20,21]},
+{n:"Final: Mixed Challenge",b:"Lord of Wrong Units",q:null}];
+const RANKS=[["Cadet",0],["Pilot",600],["Officer",1600],["Squadron Leader",3200],["Physics Ace",5500],["Quantum Commander",8500],["SPM Unit Master",12500]];
+const COMBOS=["PERFECT SHOT","UNIT MASTER","PHYSICS COMBO","QUANTUM STRIKE","INSIGHT UNLOCKED"];
+const PU=["RAPID FIRE","SHIELD","SMART MISSILE","TIME FREEZE","AHA SCAN"];
+const W=480,H=720,cv=document.getElementById("c"),x=cv.getContext("2d");
+const R=(a,b)=>Math.random()*(b-a)+a,pick=a=>a[Math.floor(Math.random()*a.length)];
+const shuf=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+// audio
+let AC;function beep(f,d,t="square",v=.05){try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();const o=AC.createOscillator(),g=AC.createGain();o.type=t;o.frequency.value=f;g.gain.value=v;g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+d);o.connect(g);g.connect(AC.destination);o.start();o.stop(AC.currentTime+d)}catch(e){}}
+// state
+let S="title",st,pl,en,bu,eb,pa,ft,boss,q,sc,hp,combo,best,shots,hits,stg,cnt,fx,msg,msgT,shake,pw,keys={},last=0,t0=0,stars=[],sub=0;
+for(let i=0;i<90;i++)stars.push({x:R(0,W),y:R(0,H),l:Math.floor(R(1,4))});
+function reset(){sc=0;hp=5;combo=0;best=0;shots=0;hits=0;stg=0;cnt=0;en=[];bu=[];eb=[];pa=[];ft=[];boss=null;q=null;pw={rapid:0,freeze:0,scan:0,shield:0};pl={x:W/2,y:650,cd:0};shake=0;
+ say("Aha! Shoot the correct unit!",4)}
+function say(m,t=2.6){msg=m;msgT=t}
+function start(){reset();S="play";newQ(true)}
+function rankOf(){let r=RANKS[0][0];for(const a of RANKS)if(sc>=a[1])r=a[0];return r}
+function newQ(first){
+ const pool=STAGES[stg].q||physicsQuestionBank.map((_,i)=>i);
+ const it=physicsQuestionBank[pick(pool)];
+ const mode=pick(["A","B","C"]);
+ let wr=it.wrongUnits.slice(),tr=TRAPS[it.quantity]||[];
+ if(mode==="C"&&tr.length){wr=[...tr,...wr.filter(u=>!tr.includes(u))].slice(0,3)}
+ else{wr=[...tr,...shuf(wr.filter(u=>!tr.includes(u)))].slice(0,3)}
+ q={it,mode,ans:it.correctUnit};
+ const lab=shuf([it.correctUnit,...wr]),slots=shuf([0,1,2,3]);
+ en=lab.map((l,i)=>({l,c:l===it.correctUnit,x:60+slots[i]*120,y:150-i*20,ph:R(0,6),hp:1}));
+ bu=[];if(!first)eb=[];
+}
+function fire(){
+ if(S!=="play"||pl.cd>0)return;pl.cd=pw.rapid>0?.11:.28;shots++;bu.push({x:pl.x,y:pl.y-22});beep(880,.06)}
+function boom(px,py,col,n=22){for(let i=0;i<n;i++)pa.push({x:px,y:py,vx:R(-190,190),vy:R(-190,190),l:R(.4,.9),c:pick([col,"#fff","#ffe14a"])})}
+function ftext(t,c){ft.push({t,c,l:1.3})}
+function hurt(){if(pw.shield>0){pw.shield=0;say("Shield absorbed it!");beep(200,.15);return}
+ hp--;shake=.35;combo=0;beep(110,.3,"sawtooth",.08);boom(pl.x,pl.y,"#ff3344",30);if(hp<=0){S="over";say("Study the units, then try again!",9)}}
+function award(){
+ const n=Math.floor(combo/3)-1;if(combo%3||combo<3)return;const p=PU[n%5];ftext(p+"!","#19e6ff");
+ if(p==="RAPID FIRE")pw.rapid=7;else if(p==="SHIELD")pw.shield=1;else if(p==="TIME FREEZE")pw.freeze=5;else if(p==="AHA SCAN")pw.scan=7;
+ else{for(const e of en)if(!e.c){boom(e.x,e.y,"#ff9a3c",16)}en=en.filter(e=>e.c)}
+ beep(1200,.25,"triangle")}
+function correct(e){
+ hits++;combo++;best=Math.max(best,combo);sc+=100+Math.min(combo,10)*10;boom(e.x,e.y,"#3cff9a",34);beep(660,.12);beep(990,.2,"triangle");
+ ftext(COMBOS[Math.min(combo-1,4)],"#ffe14a");say(combo>=3?"INSIGHT STREAK!":"Aha! Excellent!");award();
+ if(boss){boss.hp--;boss.flash=.3;boom(boss.x,boss.y+30,"#ff9a3c",30);if(boss.hp<=0){bossDown();return}}
+ else{cnt++;if(cnt>=5)spawnBoss()}
+ newQ()}
+function wrong(e){
+ combo=0;boom(e.x,e.y,"#ff3344");say("Hold your laser! Correct: "+q.ans,3.4);
+ eb.push({x:e.x,y:e.y,vx:(pl.x-e.x)*.5,vy:230,t:q.ans==="x"?"":pick(FAKE)});hurt();en=en.filter(z=>z!==e)}
+function spawnBoss(){const f=stg===7;boss={x:W/2,y:120,hp:f?6:4,max:f?6:4,t:1.5,d:1,flash:0};say("Wrong units incoming!",3);ftext("BOSS: "+STAGES[stg].b.toUpperCase(),"#ff2fd0");beep(80,.8,"sawtooth",.09)}
+function bossDown(){sc+=500+stg*100;boom(boss.x,boss.y,"#ffe14a",80);beep(300,.6,"sawtooth");boss=null;en=[];eb=[];say("Not by sight, but by INSIGHT!",3);S=stg===7?"win":"clear";t0=2.8}
+function update(d){
+ for(const s of stars){s.y+=(20+s.l*45)*d*(S==="play"?1:.4);if(s.y>H){s.y=0;s.x=R(0,W)}}
+ if(msgT>0)msgT-=d;shake=Math.max(0,shake-d);
+ for(const p of pa){p.x+=p.vx*d;p.y+=p.vy*d;p.l-=d}pa=pa.filter(p=>p.l>0);
+ for(const f of ft)f.l-=d;ft=ft.filter(f=>f.l>0);
+ if(S==="clear"){t0-=d;if(t0<=0){stg++;cnt=0;S="play";say("Stage "+(stg+1)+": "+STAGES[stg].n,3);newQ()}return}
+ if(S!=="play")return;
+ const sp=pw.freeze>0?0:1;for(const k in pw)pw[k]=k==="shield"?pw[k]:Math.max(0,pw[k]-d);
+ const m=(keys.ArrowLeft||keys.a||keys.A||keys.L?-1:0)+(keys.ArrowRight||keys.d||keys.D||keys.Rt?1:0);
+ pl.x=Math.max(28,Math.min(W-28,pl.x+m*340*d));pl.cd-=d;if(keys[" "]||keys.F)fire();
+ sub+=d;
+ for(const b of bu)b.y-=620*d;bu=bu.filter(b=>b.y>-10);
+ const spd=(28+stg*4)*sp;
+ for(const e of en){e.y+=spd*d;e.ph+=d*sp;e.dx=Math.sin(e.ph*1.5)*12}
+ for(const b of bu)for(const e of en){if(Math.abs(b.x-(e.x+e.dx))<44&&Math.abs(b.y-e.y)<28&&!b.h){b.h=1;e.c?correct(e):wrong(e);break}}
+ bu=bu.filter(b=>!b.h);
+ if(S!=="play")return;
+ for(const e of en)if(e.y>600){if(e.c){say("Missed! Correct: "+q.ans,3);hurt();combo=0;if(S==="play")newQ()}else en=en.filter(z=>z!==e);break}
+ if(boss){boss.x+=boss.d*90*d*sp;if(boss.x>W-80||boss.x<80)boss.d*=-1;boss.flash=Math.max(0,boss.flash-d);boss.t-=d*sp;
+  if(boss.t<=0){boss.t=stg===7?1.1:1.6;const f=stg===7?pick(FAKE):pick(pick(physicsQuestionBank).wrongUnits);eb.push({x:boss.x,y:boss.y+40,vx:(pl.x-boss.x)*.35,vy:200,t:f})}}
+ for(const b of eb){b.x+=b.vx*d*sp;b.y+=b.vy*d*sp;if(Math.abs(b.x-pl.x)<24&&Math.abs(b.y-pl.y)<22){b.y=9999;boom(pl.x,pl.y,"#ff3344",14);hurt()}}
+ eb=eb.filter(b=>b.y<H);
+}
+// sprites
+function px(map,pal,sx,sy,s){for(let r=0;r<map.length;r++)for(let c=0;c<map[r].length;c++){const k=map[r][c];if(k!=="."){x.fillStyle=pal[k];x.fillRect(sx+c*s,sy+r*s,s,s)}}}
+const SHIP=["....c....","....c....","...cwc...","..cwwwc..","c.cwbwc.c","cccwwwccc","cwcwwwcwc","c.rcccr.c","...r.r..."];
+const SP={c:"#19e6ff",w:"#fff",b:"#3a5bff",r:"#ff9a3c"};
+const ENM=["..mmmmm..",".mmmmmmm.","mmddmddmm","mmmmmmmmm",".m.m.m.m.","m.......m"];
+function crab(cx,cy,s){x.save();x.translate(cx,cy);
+ x.fillStyle="#ff4a3c";x.fillRect(-7*s,-2*s,14*s,8*s);x.fillRect(-11*s,-6*s,4*s,5*s);x.fillRect(7*s,-6*s,4*s,5*s);x.fillRect(-13*s,-8*s,3*s,3*s);x.fillRect(10*s,-8*s,3*s,3*s);
+ for(let i=0;i<3;i++){x.fillRect(-10*s,(1+i*2)*s,3*s,s);x.fillRect(7*s,(1+i*2)*s,3*s,s)}
+ x.fillStyle="#fff";x.fillRect(-4*s,-1*s,3*s,3*s);x.fillRect(2*s,-1*s,3*s,3*s);x.fillStyle="#000";x.fillRect(-3*s,0,s,2*s);x.fillRect(3*s,0,s,2*s);
+ x.fillRect(-2*s,4*s,4*s,s);
+ x.fillStyle="#ffe14a";x.fillRect(-7*s,-8*s,14*s,6*s);x.fillRect(-9*s,-3*s,18*s,s);x.fillStyle="#b08a00";x.fillRect(-7*s,-4*s,14*s,s);
+ x.fillStyle="#000";x.font="bold "+Math.round(4.6*s)+"px monospace";x.textAlign="center";x.textBaseline="middle";x.fillText("AHA",0,-5.4*s);x.restore()}
+function glow(t,px_,py,sz,col,al="center"){x.font="bold "+sz+"px 'Courier New',monospace";x.textAlign=al;x.textBaseline="middle";x.shadowColor=col;x.shadowBlur=12;x.fillStyle=col;x.fillText(t,px_,py);x.shadowBlur=0}
+function fit(t,mx,sz,col,py){let s=sz;x.font="bold "+s+"px 'Courier New',monospace";while(x.measureText(t).width>mx&&s>10){s--;x.font="bold "+s+"px 'Courier New',monospace"}glow(t,W/2,py,s,col)}
+function bubble(){if(msgT>0||S==="title"){x.fillStyle="#120a2a";x.fillRect(46,104,426,32);x.strokeStyle="#ffe14a";x.lineWidth=2;x.strokeRect(46,104,426,32);fit("🦀 "+msg,410,15,"#ffe14a",120)}}
+function draw(){
+ x.save();x.fillStyle="#05020f";x.fillRect(0,0,W,H);
+ if(shake>0)x.translate(R(-5,5),R(-5,5));
+ for(const s of stars){x.fillStyle=["#445","#99a","#fff"][s.l-1];x.fillRect(s.x,s.y,s.l,s.l*2)}
+ // grid scroll
+ x.strokeStyle="rgba(255,47,208,.12)";x.lineWidth=1;for(let i=0;i<14;i++){const y=((i*60+sub*30)%H);x.beginPath();x.moveTo(0,y);x.lineTo(W,y);x.stroke()}
+ if(S==="title"){titleScr();x.restore();return}
+ // enemies
+ for(const e of en){const ex=e.x+(e.dx||0);px(ENM,{m:e.c&&pw.scan>0?"#3cff9a":"#8a3cff",d:"#000"},ex-27,e.y-34,6);
+  x.fillStyle="#0b0620";x.fillRect(ex-40,e.y+2,80,24);x.strokeStyle=e.c&&pw.scan>0?"#3cff9a":"#19e6ff";x.lineWidth=2;x.strokeRect(ex-40,e.y+2,80,24);
+  let s=17;x.font="bold 17px monospace";while(x.measureText(e.l).width>74&&s>9){s--;x.font="bold "+s+"px monospace"}glow(e.l,ex,e.y+15,s,"#fff")}
+ if(boss){const f=boss.flash>0;x.fillStyle=f?"#fff":"#ff2fd0";x.fillRect(boss.x-70,boss.y-30,140,50);x.fillStyle=f?"#ffe14a":"#6a1a8a";x.fillRect(boss.x-50,boss.y+20,100,22);x.fillRect(boss.x-90,boss.y-10,24,40);x.fillRect(boss.x+66,boss.y-10,24,40);
+  x.fillStyle="#ffe14a";x.fillRect(boss.x-34,boss.y-14,18,12);x.fillRect(boss.x+16,boss.y-14,18,12);
+  x.fillStyle="#222";x.fillRect(boss.x-70,boss.y-46,140,9);x.fillStyle="#ff3344";x.fillRect(boss.x-69,boss.y-45,138*boss.hp/boss.max,7);
+  glow(STAGES[stg].b,boss.x,boss.y-58,13,"#ff2fd0")}
+ for(const b of bu){x.fillStyle="#ffe14a";x.shadowColor="#ffe14a";x.shadowBlur=10;x.fillRect(b.x-2,b.y,4,14);x.shadowBlur=0}
+ for(const b of eb){x.fillStyle="#2a0a1a";x.fillRect(b.x-26,b.y-11,52,22);x.strokeStyle="#ff3344";x.strokeRect(b.x-26,b.y-11,52,22);glow(b.t,b.x,b.y,13,"#ff6677")}
+ if(S!=="over"){px(SHIP,SP,pl.x-27,pl.y-27,6);if(pw.shield>0){x.strokeStyle="#19e6ff";x.lineWidth=3;x.shadowColor="#19e6ff";x.shadowBlur=14;x.beginPath();x.arc(pl.x,pl.y,36,0,7);x.stroke();x.shadowBlur=0}
+  x.fillStyle=["#ff9a3c","#ffe14a"][Math.floor(sub*30)%2];x.fillRect(pl.x-4,pl.y+28,8,8)}
+ for(const p of pa){x.fillStyle=p.c;x.fillRect(p.x,p.y,4,4)}
+ // HUD
+ x.fillStyle="#0b0620";x.fillRect(0,0,W,38);x.fillRect(0,38,W,64);
+ glow("SCORE "+String(sc).padStart(6,"0"),8,12,14,"#19e6ff","left");
+ glow("♥".repeat(Math.max(hp,0))+"♡".repeat(5-Math.max(hp,0)),W/2+10,12,17,"#ff3355");
+ glow("STAGE "+(stg+1)+"/8",W-8,12,14,"#ffe14a","right");
+ glow(rankOf(),8,29,11,"#ff2fd0","left");glow("COMBO x"+combo,W/2+10,29,11,"#3cff9a");glow("ACC "+(shots?Math.round(hits/shots*100):100)+"%",W-8,29,11,"#19e6ff","right");
+ if(q){x.strokeStyle="#ff2fd0";x.lineWidth=2;x.strokeRect(6,42,W-12,58);
+  const lb={A:"QUANTITY → UNIT",B:"FORMULA → UNIT",C:"⚠ TRAP DETECTION: pick the exact unit"}[q.mode];
+  glow(lb,W/2,52,11,q.mode==="C"?"#ff6677":"#8affc8");fit(q.mode==="B"?q.it.formula:q.it.quantity+(q.mode==="C"?"":" ?"),W-30,26,"#fff",78)}
+ crab(26,122,1.4);bubble();
+ const act=[];if(pw.rapid>0)act.push("RAPID "+Math.ceil(pw.rapid));if(pw.freeze>0)act.push("FREEZE "+Math.ceil(pw.freeze));if(pw.scan>0)act.push("SCAN "+Math.ceil(pw.scan));if(pw.shield>0)act.push("SHIELD");
+ if(act.length)glow(act.join("  "),8,H-12,12,"#19e6ff","left");
+ if(S==="play"&&boss===null&&cnt<5)glow("BOSS IN "+(5-cnt),W-8,H-12,12,"#ff2fd0","right");
+ for(const f of ft){x.globalAlpha=Math.min(1,f.l*2);glow(f.t,W/2,360-(1.3-f.l)*60,f.t.length>14?26:36,f.c);x.globalAlpha=1}
+ if(S==="pause")overlay("PAUSED","Press P or tap to resume");
+ if(S==="clear")overlay("STAGE CLEAR!","Not by sight, but by INSIGHT!");
+ if(S==="over")overlay("GAME OVER","Score "+sc+" · "+rankOf()+" · Press R or tap");
+ if(S==="win")overlay("MISSION COMPLETE",rankOf()+" · Score "+sc+" · Press R or tap");
+ x.restore()}
+function overlay(a,b){x.fillStyle="rgba(5,2,15,.75)";x.fillRect(0,230,W,170);fit(a,W-20,40,"#ffe14a",290);fit(b,W-30,16,"#fff",345)}
+function titleScr(){fit("AHA! PHYSICS",W-20,52,"#ff2fd0",190);fit("UNIT STRIKER 16-BIT",W-20,30,"#19e6ff",245);
+ crab(W/2,360,5);fit("Not by sight, but by INSIGHT.",W-30,20,"#ffe14a",470);
+ fit("Shoot the correct SI unit!",W-30,16,"#fff",520);if(Math.floor(performance.now()/500)%2)fit("PRESS SPACE / TAP TO START",W-30,20,"#3cff9a",590);
+ fit("SPM Physics KSSM",W-30,13,"#99a",650)}
+function loop(t){const d=Math.min(.05,(t-last)/1000||0);last=t;if(S!=="pause")update(d);else for(const s of stars)s.y+=0;draw();requestAnimationFrame(loop)}
+// input
+addEventListener("keydown",e=>{
+ if(["ArrowLeft","ArrowRight"," "].includes(e.key))e.preventDefault();
+ keys[e.key]=true;const k=e.key.toLowerCase();
+ if((e.key===" "||e.key==="Enter")&&S==="title")start();
+ else if(k==="p"){if(S==="play")S="pause";else if(S==="pause")S="play"}
+ else if(k==="r")start();
+ else if((S==="over"||S==="win")&&(e.key===" "||e.key==="Enter"))start()});
+addEventListener("keyup",e=>{keys[e.key]=false});
+const bind=(id,k)=>{const b=document.getElementById(id);b.addEventListener("pointerdown",e=>{e.preventDefault();keys[k]=true;if(S==="title"||S==="over"||S==="win")start();else if(S==="pause")S="play"});["pointerup","pointerleave","pointercancel"].forEach(n=>b.addEventListener(n,()=>keys[k]=false))};
+bind("bl","L");bind("br","Rt");bind("bf","F");
+cv.addEventListener("pointerdown",e=>{if(S==="title"||S==="over"||S==="win")start();else if(S==="pause")S="play";else if(S==="play"){const r=cv.getBoundingClientRect();pl.x=(e.clientX-r.left)/r.width*W;fire()}});
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&S==="play")S="pause"});
+reset();S="title";say("Tap or press Space to start!");msgT=1e9;requestAnimationFrame(loop);
+</script>
+</body>
+</html>
